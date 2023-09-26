@@ -8,7 +8,7 @@ __pycache__
 cloudgoat
 cloudgoat.pub
 output.txt
-**.backup
+**tfstate.backup
 # Configuration files:
 config.yml
 whitelist.txt
